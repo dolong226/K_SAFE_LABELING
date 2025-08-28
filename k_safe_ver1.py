@@ -4,7 +4,7 @@ from pysat.solvers import Glucose3
 import time
 from multiprocessing import Process, Manager
 
-TIMEOUT = 3600
+TIMEOUT = 600
 
 def X_id(i: int, j: int, UB: int) -> int:
     return i * UB + j
