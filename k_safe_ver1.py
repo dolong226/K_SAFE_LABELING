@@ -4,7 +4,7 @@ from pysat.solvers import Glucose3
 import time
 from multiprocessing import Process, Manager
 
-TIMEOUT = 600
+TIMEOUT = 3600
 
 def X_id(i: int, j: int, UB: int) -> int:
     return i * UB + j
@@ -131,7 +131,7 @@ def main():
             if "best_S" in shared and shared["best_S"] is not None:
                 print("Last UB before timeout =", shared["best_S"])
             else:
-                print("Khong tim duoc nghiem nao truoc khi timeout")
+                print("No solution was found before timeout")
         end = time.perf_counter()
         print(f"Time: {end - start:.2f} s")
 
