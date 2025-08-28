@@ -3,6 +3,8 @@ from typing import List, Tuple
 from pysat.solvers import Glucose3
 import time
 from multiprocessing import Process, Manager
+import numpy as np
+import pandas as pd
 
 TIMEOUT = 600
 
@@ -11,6 +13,7 @@ def X_id(i: int, j: int, UB: int) -> int:
 
 def control_var_id(S: int, n: int, UB: int) -> int:
     return n * UB + S
+
 def build_base_cnf(n: int, edges:List[Tuple[int,int]], k:int, UB: int, root_fix:bool = True) -> CNF:
     cnf = CNF()
 
@@ -36,7 +39,7 @@ def build_base_cnf(n: int, edges:List[Tuple[int,int]], k:int, UB: int, root_fix:
                 cnf.append([-X_id(i1,j,UB), X_id(i1,j-1,UB), -X_id(i2,j,UB), X_id(i2,j-1,UB)])
 
     # K_u,val => X_v,val-k V -X_v,val+k-1
-    # -X_u,val V X_u,val-1 V X_v,val-k V -Xv,val+k-1
+    # -X_u,val V X_u,val-1 V X_v,val-k V -X_v,val+k-1
     directed_edges = edges + [(v,u) for u,v in edges]
     for u,v in directed_edges:
         for val in range(1,UB + 1):
@@ -114,6 +117,7 @@ def main():
     edges = [tuple(map(int, input().split())) for _ in range(m)]
     k = int(input())
     UB = k * (n - 1) + 1
+    
 
     start = time.perf_counter()
 
@@ -124,7 +128,7 @@ def main():
         p.join(timeout = TIMEOUT)
 
         if p.is_alive():
-            print(f"Timeout sau {TIMEOUT} s")
+            print(f"TIMEOUT")
             p.terminate()
             p.join()
         
