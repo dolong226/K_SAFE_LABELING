@@ -1,6 +1,6 @@
 from typing import List, Tuple
 from pysat.formula import CNF
-from pysat.solvers import Glucose3, Cadical103
+from pysat.solvers import Glucose42, Cadical195
 import time
 from multiprocessing import Process, Manager
 import pandas as pd
@@ -116,7 +116,7 @@ def compute_upper_bound(n, edges, k):
 
     return lst2[-1] if lst2 else None
   
-def solve_inc(n: int, edges:List[Tuple[int,int]], k:int, UB:int, shared, solver_cls = Glucose3):
+def solve_inc(n: int, edges:List[Tuple[int,int]], k:int, UB:int, shared, solver_cls = Glucose42):
     cnf = build_base_cnf(n,edges, k, UB)
     solver = solver_cls(bootstrap_with=cnf.clauses)
 
@@ -166,8 +166,8 @@ def main():
 
     with Manager() as manager:
         shared = manager.dict()
-        p = Process(target=solve_inc, args = (n,edges,k,UB,shared,Glucose3))
-        # p = Process(target=solve_inc, args = (n,edges,k,UB,shared,Cadical103))
+        p = Process(target=solve_inc, args = (n,edges,k,UB,shared,Glucose42))
+        # p = Process(target=solve_inc, args = (n,edges,k,UB,shared,Cadical195))
         p.start()
         p.join(timeout = TIMEOUT)
 
