@@ -15,65 +15,87 @@ def X_id(i: int, j: int, UB: int) -> int:
 def control_var_id(S: int, n: int, UB: int) -> int:
     return n * UB + S
 
+def symmetry_find(n: int, edges:List[Tuple[int,int]]) -> int:
+    fmax = 0
+    sym = 0
+    arr = [0] * n
+    for (u,v) in edges:
+        arr[u] += 1
+        arr[v] += 1
+        if arr[u] > fmax:
+            fmax = arr[u]
+            sym = u
+        if arr[v] > fmax:
+            fmax = arr[v]
+            sym = v
+    return sym
+
+
 def build_base_cnf(n: int, edges:List[Tuple[int,int]], k:int, UB: int, root_fix:bool = True) -> CNF:
     cnf = CNF()
 
-    # X_i,1 = 1
+
+# 1) Bắt buộc X_i,1 = True (label >= 1)
     for i in range(n):
-        cnf.append([X_id(i,1,UB)])
+        cnf.append([ X_id(i, 1, UB) ])
 
-    # X_i,j => X_i,j-1
-    for i in range (n):
-        for j in range (2, UB + 1):
-            cnf.append([-X_id(i,j,UB), X_id(i,j-1,UB)])
+# 2) Monotonicity: X_{j+1} => X_j   (for j = 1..n-1)
+    for i in range(n):
+        for j in range(1, UB):           # j = 1..n-1
+            cnf.append([ -X_id(i, j+1, UB), X_id(i, j, UB) ])
 
-    # -X_i1,1 V - X_i2,1
-    for i1 in range(n):
-        for i2 in range(i1 + 1, n):
-            cnf.append([-X_id(i1,  1, UB), -X_id(i2, 1, UB)])
-
-    # -(K_i1,j ∧ K_i2,j)
-    # -X_i1,j V X_i1,j+1 V -X_i2,j V X_i2,j+1
-    for i1 in range(n):
-        for i2 in range(i1 + 1, n):
-            for j in range(2, UB):
-                cnf.append([-X_id(i1,j,UB), X_id(i1,j+1,UB), -X_id(i2,j,UB), X_id(i2,j+1,UB)])
-
-    # Note: for j=UB, since no j+1, handle separately as -X_i1,UB V -X_i2,UB
-    for i1 in range(n):
-        for i2 in range(i1 + 1, n):
-            cnf.append([-X_id(i1,  UB, UB), -X_id(i2, UB, UB)])
-
-    # K_u,val => -X_v,val-k+1 V X_v,val+k
-    # -X_u,val V X_u,val+1 V -X_v,val-k+1 V X_v,val+k
-    directed_edges = edges + [(v,u) for u,v in edges]
-    for u,v in directed_edges:
-        for val in range(1,UB + 1): 
-            condition_lits = []
-            m = val - k + 1
-            if m >= 1:
-                condition_lits.append(-X_id(v,m,UB))
-            p = val + k
-            if p <= UB:
-                condition_lits.append(X_id(v,p,UB))
-            
-            if not condition_lits:
-                if val == UB:
-                    clause = [-X_id(u,UB,UB)]
+    # 3) At-most-one vertex per label j (encode pairwise)
+    #    Use the equivalence K_ij <-> X_ij ∧ ¬X_i,j+1  (K_in <-> X_in)
+    for j in range(1, UB+1):             # j = 1..n
+        for i1 in range(n):
+            for i2 in range(i1+1, n):
+                if j == UB:
+                    # K_i, n <-> X_i,n  => at most one: ¬X_i1,n ∨ ¬X_i2,n
+                    cnf.append([ -X_id(i1, UB, UB), -X_id(i2, UB, UB) ])
                 else:
-                    clause = [-X_id(u,val,UB), X_id(u, val+1, UB)]
+                    # general: ¬(X_i1,j ∧ ¬X_i1,j+1) ∨ ¬(X_i2,j ∧ ¬X_i2,j+1)
+                    # -> (~X_i1,j ∨ X_i1,j+1 ∨ ~X_i2,j ∨ X_i2,j+1)
+                    cnf.append([
+                        -X_id(i1, j, UB), X_id(i1, j+1, UB),
+                        -X_id(i2, j, UB), X_id(i2, j+1, UB)
+                    ])
+
+# 4) Distance constraints (k-safe)
+    directed_edges = edges + [(v,u) for (u,v) in edges]
+    for (u,v) in directed_edges:
+        for val in range(1, UB+1):
+            cond = []
+            # allowed: v <= val-k  OR  v >= val+k
+            low_index = val - k + 1          # if v <= val-k  <=>  ¬X_v, low_index
+            if 1 <= low_index <= UB:
+                cond.append( -X_id(v, low_index, UB) )   # ¬X_v, val-k+1
+
+            high_index = val + k             # if v >= val+k  <=> X_v, high_index
+            if 1 <= high_index <= UB:
+                cond.append( X_id(v, high_index, UB) )
+
+            # Build clause: implication K_u,val => OR(cond)
+            if val == UB:
+                # K_u,UB == X_u,UB  => clause is ¬X_u,UB ∨ OR(cond)
+                if cond:
+                    clause = [ -X_id(u, UB, UB) ] + cond
+                else:
+                    # no allowed label for v -> forbid K_u,UB i.e. forbid X_u,UB
+                    clause = [ -X_id(u, UB, UB) ]
             else:
-                if val == UB:
-                    clause = [-X_id(u,UB,UB)] + condition_lits
+                # K_u,val == X_u,val ∧ ¬X_u,val+1
+                if cond:
+                    clause = [ -X_id(u, val, UB), X_id(u, val+1, UB) ] + cond
                 else:
-                    clause = [-X_id(u,val,UB), X_id(u,val+1,UB)] + condition_lits
-            
-            if clause:
-                cnf.append(clause)
-    
+                    # no allowed label for v -> forbid K_u,val: ¬(X_u,val ∧ ¬X_u,val+1)
+                    clause = [ -X_id(u, val, UB), X_id(u, val+1, UB) ]
+
+            cnf.append(clause)
+
     # symmetry breaking
     if root_fix:
-        cnf.append([-X_id(0,2,UB)])
+        s = symmetry_find(n, edges)
+        cnf.append([X_id(s,1,UB)])
 
     # incremental
     for S in range(1, UB):
@@ -87,6 +109,10 @@ def solve_inc(n: int, edges: List[Tuple[int, int]], k: int, UB: int, shared, sol
     cnf = build_base_cnf(n, edges, k,UB)
     solver = solver_cls(bootstrap_with=cnf.clauses)
 
+    # print clauses, vars
+    print("Variables: ", solver.nof_vars())
+    print("Clauses: ", solver.nof_clauses())
+    
     best_S, best_model = None, None
     high = UB
     while high > 0:
@@ -180,10 +206,8 @@ def compute_upper_bound(n, edges, k):
     return lst2[-1] if lst2 else None
 
 def main():
-    n = int(input())
-    m = int(input())
+    n,m ,k = map(int, input().split())
     edges = [tuple(map(int, input().split())) for _ in range(m)]
-    k = int(input())
     UB = compute_upper_bound(n,edges, k)
     
 

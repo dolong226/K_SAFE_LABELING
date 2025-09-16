@@ -1,14 +1,14 @@
-
 import os
 import time
 import argparse
 import pandas as pd
 from multiprocessing import Process, Manager
+import importlib
 
 from pysat.solvers import Glucose42, Cadical195
-from direct import build_base_cnf, compute_upper_bound, solve_inc, TIMEOUT
-from ver1_glu import build_base_cnf, compute_upper_bound, solve_inc, TIMEOUT
-
+# from ver1_glu import compute_upper_bound, solve_inc, build_base_cnf
+# from direct import compute_upper_bound,solve_inc,build_base_cnf
+from ver2 import compute_upper_bound, solve_inc, build_base_cnf
 def parse_instance(path: str):
     with open(path, "r", encoding="utf-8") as f:
         first = ""
@@ -41,8 +41,8 @@ def parse_instance(path: str):
     return n, m, k, edges
 
 
-def cnf_stats(n: int, edges, k: int, UB: int):
-    cnf = build_base_cnf(n, edges, k, UB)
+def cnf_stats(n: int, edges, k: int, UB: int, mod):
+    cnf = mod.build_base_cnf(n, edges, k, UB)
     clauses = len(cnf.clauses)
     max_var = 0
     for cl in cnf.clauses:
@@ -52,6 +52,7 @@ def cnf_stats(n: int, edges, k: int, UB: int):
                 max_var = v
     return clauses, max_var
 
+
 def choose_solver(name: str):
     name = name.lower()
     if name in ("glucose", "g3", "glucose42"):
@@ -60,28 +61,38 @@ def choose_solver(name: str):
         return Cadical195
     raise ValueError(f"Invalid solver: {name}")
 
-def run_one(path: str, solver_name: str, timeout_sec: float):
+
+def run_one(path: str, solver_name: str, timeout_sec: float, method: str):
     n, m, k, edges = parse_instance(path)
 
-    UB = compute_upper_bound(n, edges, k)
+    # import module theo method
+    if method == "direct":
+        mod = importlib.import_module("direct")
+    elif method == "ver1":
+        mod = importlib.import_module("ver1")
+    elif method == "ver2":
+        mod = importlib.import_module("ver2")
+        raise ValueError(f"Method chưa hỗ trợ: {method}")
 
+    UB = mod.compute_upper_bound(n, edges, k)
     if UB is None:
         UB = k * (n - 1) + 1
 
-    clauses, vars_ = cnf_stats(n, edges, k, UB)
+    clauses, vars_ = cnf_stats(n, edges, k, UB, mod)
 
     start = time.perf_counter()
     with Manager() as manager:
         shared = manager.dict()
         SolverCls = choose_solver(solver_name)
-        p = Process(target=solve_inc, args=(n, edges, k, UB, shared, SolverCls))
+
+        p = Process(target=mod.solve_inc, args=(n, edges, k, UB, shared, SolverCls))
         p.start()
         p.join(timeout_sec)
 
         status = None
         span = None
         if p.is_alive():
-        # Timeout
+            # Timeout
             p.terminate()
             p.join()
             status = "TO"
@@ -96,10 +107,8 @@ def run_one(path: str, solver_name: str, timeout_sec: float):
                 status = "UNSAT"
             elapsed = time.perf_counter() - start
 
-
-
     return {
-        "Instance": os.path.basename(path),
+        "Instance": f"{os.path.basename(path)}[{method}]",  # in kèm tên method
         "n": n,
         "m": m,
         "k": k,
@@ -110,6 +119,7 @@ def run_one(path: str, solver_name: str, timeout_sec: float):
         "Status": status,
         "Time(s)": round(elapsed, 2),
     }
+
 
 def collect_paths(input_path: str, ext: str):
     paths = []
@@ -128,19 +138,32 @@ def collect_paths(input_path: str, ext: str):
 def main():
     parser = argparse.ArgumentParser(description="Solve k-safe labeling instances và xuất CSV")
     parser.add_argument("--input", required=True, help="Thư mục chứa các instance hoặc đường dẫn 1 file")
-    parser.add_argument("--out", default="results.csv", help="Đường dẫn file CSV output")
+
+    # file name
+    parser.add_argument("--out", default="results_ver2_cadical.csv", help="Đường dẫn file CSV output")
+    
     parser.add_argument("--solver", default="glucose", help="glucose | cadical")
-    parser.add_argument("--timeout", type=float, default=TIMEOUT, help="Timeout mỗi instance (giây)")
+    parser.add_argument("--timeout", type=float, default=None, help="Timeout mỗi instance (giây)")
     parser.add_argument("--ext", default=".txt", help="Phần mở rộng file instance khi --input là thư mục (vd .txt)")
+    parser.add_argument("--method", default="default", help="Phiên bản thuật toán: default | ver1_glu | ...")
 
     args = parser.parse_args()
+
+    # nếu không truyền timeout thì lấy TIMEOUT từ module method
+    if args.timeout is None:
+        if args.method == "default":
+            args.timeout = importlib.import_module("direct").TIMEOUT
+        elif args.method == "ver1":
+            args.timeout = importlib.import_module("ver1_glu").TIMEOUT
+        elif args.method == "ver2":
+            args.timeout == importlib.import_module("ver2").TIMEOUT
 
     paths = collect_paths(args.input, args.ext)
 
     rows = []
     for p in paths:
         try:
-            row = run_one(p, args.solver, args.timeout)
+            row = run_one(p, args.solver, args.timeout, args.method)
             rows.append(row)
             print(f"{row['Instance']}: {row['Status']} span={row['Span']} time={row['Time(s)']}s")
         except Exception as e:
@@ -156,5 +179,8 @@ def main():
 if __name__ == "__main__":
     main()
 
+# ví dụ chạy:
+# python solve.py --input ./instances --solver cadical --method default
+# python solve.py --input ./instances --solver glucose --method ver1_glu
 
-# python solve.py --input ./instances/instance1.txt --solver cadical --timeout 600
+# python source/solve2.py --input ./instance --solver cadical --method ver2

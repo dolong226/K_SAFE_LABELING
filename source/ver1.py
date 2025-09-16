@@ -3,8 +3,6 @@ from typing import List, Tuple
 from pysat.solvers import Glucose42, Cadical195
 import time
 from multiprocessing import Process, Manager
-import numpy as np
-import pandas as pd
 import networkx as nx
 
 TIMEOUT = 600
@@ -14,6 +12,21 @@ def X_id(i: int, j: int, UB: int) -> int:
 
 def control_var_id(S: int, n: int, UB: int) -> int:
     return n * UB + S
+
+def symmetry_find(n: int, edges:List[Tuple[int,int]]) -> int:
+    fmax = 0
+    sym = 0
+    arr = [0] * n
+    for (u,v) in edges:
+        arr[u] += 1
+        arr[v] += 1
+        if arr[u] > fmax:
+            fmax = arr[u]
+            sym = u
+        if arr[v] > fmax:
+            fmax = arr[v]
+            sym = v
+    return sym
 
 def build_base_cnf(n: int, edges:List[Tuple[int,int]], k:int, UB: int, root_fix:bool = True) -> CNF:
     cnf = CNF()
@@ -64,9 +77,10 @@ def build_base_cnf(n: int, edges:List[Tuple[int,int]], k:int, UB: int, root_fix:
             if clause:
                 cnf.append(clause)
     
-    # symmetry breaking
+    # symmetry breaking ()
     if root_fix:
-        cnf.append([X_id(0,1,UB)])
+        s = symmetry_find(n,edges)
+        cnf.append([X_id(s,1,UB)])
 
     # incremental
     for S in range(1, UB + 1):
@@ -118,12 +132,10 @@ def solve_inc(n: int, edges: List[Tuple[int, int]], k: int, UB: int, shared, sol
 
 def compute_upper_bound(n, edges, k):
 
-    # tạo đồ thị gốc
     G = nx.Graph()
     G.add_nodes_from(range(n))
     G.add_edges_from(edges)
 
-    # tạo complete graph
     G2 = nx.complete_graph(n)
     E_c = list(nx.non_edges(G))
     edge_checked = set()
@@ -176,11 +188,11 @@ def compute_upper_bound(n, edges, k):
 
     return lst2[-1] if lst2 else None
 
+
 def main():
-    n = int(input())
-    m = int(input())
+    n,m,k = map(int, input().split())
+
     edges = [tuple(map(int, input().split())) for _ in range(m)]
-    k = int(input())
     UB = compute_upper_bound(n,edges, k)
     
 
